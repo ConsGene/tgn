@@ -160,7 +160,7 @@ for i in range(args.n_runs):
             use_destination_embedding_in_message=args.use_destination_embedding_in_message,
             use_source_embedding_in_message=args.use_source_embedding_in_message,
             dyrep=args.dyrep)
-  criterion = torch.nn.BCELoss()
+  criterion = torch.nn.MSELoss()
   optimizer = torch.optim.Adam(tgn.parameters(), lr=LEARNING_RATE)
   tgn = tgn.to(device)
 
@@ -213,11 +213,11 @@ for i in range(args.n_runs):
         _, negatives_batch = train_rand_sampler.sample(size)
 
         with torch.no_grad():
-          pos_label = torch.ones(size, dtype=torch.float, device=device)
+          pos_label = torch.tensor(train_data.labels[start_idx:end_idx], dtype=torch.float, device=device)
           neg_label = torch.zeros(size, dtype=torch.float, device=device)
 
         tgn = tgn.train()
-        pos_prob, neg_prob = tgn.compute_edge_probabilities(sources_batch, destinations_batch, negatives_batch,
+        pos_prob, neg_prob = tgn.compute_edge_values(sources_batch, destinations_batch, negatives_batch,
                                                             timestamps_batch, edge_idxs_batch, NUM_NEIGHBORS)
 
         loss += criterion(pos_prob.squeeze(), pos_label) + criterion(neg_prob.squeeze(), neg_label)

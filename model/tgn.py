@@ -192,7 +192,7 @@ class TGN(torch.nn.Module):
 
     return source_node_embedding, destination_node_embedding, negative_node_embedding
 
-  def compute_edge_probabilities(self, source_nodes, destination_nodes, negative_nodes, edge_times,
+  def compute_edge_values(self, source_nodes, destination_nodes, negative_nodes, edge_times,
                                  edge_idxs, n_neighbors=20):
     """
     Compute probabilities for edges between sources and destination and between sources and
@@ -204,7 +204,7 @@ class TGN(torch.nn.Module):
     :param edge_idxs [batch_size]: index of interaction
     :param n_neighbors [scalar]: number of temporal neighbor to consider in each convolutional
     layer
-    :return: Probabilities for both the positive and negative edges
+    :return: Values for both the positive and negative edges
     """
     n_samples = len(source_nodes)
     source_node_embedding, destination_node_embedding, negative_node_embedding = self.compute_temporal_embeddings(
@@ -216,7 +216,7 @@ class TGN(torch.nn.Module):
     pos_score = score[:n_samples]
     neg_score = score[n_samples:]
 
-    return pos_score.sigmoid(), neg_score.sigmoid()
+    return pos_score.tanh(), neg_score.tanh()
 
   def update_memory(self, nodes, messages):
     # Aggregate messages for the same nodes

@@ -26,7 +26,7 @@ def get_data_node_classification(dataset_name, use_validation=False):
   sources = graph_df.u.values
   destinations = graph_df.i.values
   edge_idxs = graph_df.idx.values
-  labels = graph_df.label.values
+  
   timestamps = graph_df.ts.values
 
   random.seed(2020)
@@ -36,7 +36,13 @@ def get_data_node_classification(dataset_name, use_validation=False):
   val_mask = np.logical_and(timestamps <= test_time, timestamps > val_time) if use_validation else test_mask
 
   full_data = Data(sources, destinations, timestamps, edge_idxs, labels)
-
+  train_df = graph_df[train_mask]
+  train_df['abs_label'] = train_df['label'].abs()
+  i_maxes = train_df.groupby('i')['abs_label'].max().reset_index().set_index('i')['abs_label'].to_dict()
+  # normalize labels with the max value from training set
+  for i, max_label in i_maxes.items():
+    graph_df[graph_df.i == i]['label'] /= max_label
+  labels = graph_df.label.values
   train_data = Data(sources[train_mask], destinations[train_mask], timestamps[train_mask],
                     edge_idxs[train_mask], labels[train_mask])
 
