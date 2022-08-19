@@ -285,9 +285,9 @@ for i in range(args.n_runs):
     logger.info('epoch: {} took {:.2f}s'.format(epoch, total_epoch_time))
     logger.info('Epoch mean loss: {}'.format(np.mean(m_loss)))
     logger.info(
-      'val auc: {}, new node val auc: {}'.format(val_auc, nn_val_auc))
+      'val r2: {}, new node val r2: {}'.format(val_auc, nn_val_auc))
     logger.info(
-      'val ap: {}, new node val ap: {}'.format(val_ap, nn_val_ap))
+      'val MAE: {}, new node val MAE: {}'.format(val_ap, nn_val_ap))
 
     # Early stopping
     if early_stopper.early_stop_check(val_ap):

@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 import torch
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import mean_absolute_error, r2_score
 
 
 def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_size=200):
@@ -38,10 +38,10 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_
                                                             edge_idxs_batch, n_neighbors)
 
       pred_score = np.concatenate([(pos_prob).cpu().numpy(), (neg_prob).cpu().numpy()])
-      true_label = np.concatenate([np.ones(size), np.zeros(size)])
+      true_label = np.concatenate([data.labels[s_idx: e_idx], np.zeros(size)])
 
-      val_ap.append(average_precision_score(true_label, pred_score))
-      val_auc.append(roc_auc_score(true_label, pred_score))
+      val_ap.append(mean_absolute_error(true_label, pred_score))
+      val_auc.append(r2_score(true_label, pred_score))
 
   return np.mean(val_ap), np.mean(val_auc)
 
@@ -72,5 +72,5 @@ def eval_node_classification(tgn, decoder, data, edge_idxs, batch_size, n_neighb
       pred_prob_batch = decoder(source_embedding).sigmoid()
       pred_prob[s_idx: e_idx] = pred_prob_batch.cpu().numpy()
 
-  auc_roc = roc_auc_score(data.labels, pred_prob)
+  auc_roc = r2(data.labels, pred_prob)
   return auc_roc

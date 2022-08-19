@@ -57,7 +57,7 @@ def run(data_name, bipartite=True):
   feat = np.vstack([empty, feat])
 
   max_idx = max(new_df.u.max(), new_df.i.max())
-  rand_feat = np.zeros((max_idx + 1, 172))
+  rand_feat = np.zeros((max_idx + 1, feat.shape[1]))
 
   new_df.to_csv(OUT_DF)
   np.save(OUT_FEAT, feat)
@@ -65,7 +65,7 @@ def run(data_name, bipartite=True):
 
 parser = argparse.ArgumentParser('Interface for TGN data preprocessing')
 parser.add_argument('--data', type=str, help='Dataset name (eg. wikipedia or reddit)',
-                    default='wikipedia')
+                    default='5K')
 parser.add_argument('--bipartite', action='store_true', help='Whether the graph is bipartite')
 
 args = parser.parse_args()
