@@ -84,26 +84,58 @@ def get_data(dataset_name, different_new_nodes_between_val_and_test=False, rando
     set(destinations[timestamps > val_time]))
   # Sample nodes which we keep as new nodes (to test inductiveness), so than we have to remove all
   # their edges from training
-  new_test_node_set = set(random.sample(test_node_set, int(0.1 * n_total_unique_nodes)))
+  # new_test_node_set = set(random.sample(test_node_set, int(0.1 * n_total_unique_nodes)))
 
   # Mask saying for each source and destination whether they are new test nodes
-  new_test_source_mask = graph_df.u.map(lambda x: x in new_test_node_set).values
-  new_test_destination_mask = graph_df.i.map(lambda x: x in new_test_node_set).values
+  # new_test_source_mask = graph_df.u.map(lambda x: x in new_test_node_set).values
+  # new_test_destination_mask = graph_df.i.map(lambda x: x in new_test_node_set).values
 
   # Mask which is true for edges with both destination and source not being new test nodes (because
   # we want to remove all edges involving any new test node)
-  observed_edges_mask = np.logical_and(~new_test_source_mask, ~new_test_destination_mask)
+  # observed_edges_mask = np.logical_and(~new_test_source_mask, ~new_test_destination_mask)
 
   # For train we keep edges happening before the validation time which do not involve any new node
   # used for inductiveness
-  train_mask = np.logical_and(timestamps <= val_time, observed_edges_mask)
+  # train_mask = np.logical_and(timestamps <= val_time, observed_edges_mask)
+  train_mask = (timestamps <= val_time)
+  train_df = graph_df[train_mask]
+
+  train_i = train_df.i.unique()
+  # filter out new merchants in the valid/test
+  from scipy import stats
+
+  g_df = g_df[g_df.i.isin(train_i)]
+
+  ts_l = g_df.ts.values
+  valid_train_flag = (ts_l <= val_time)
+  src_l = g_df.u.values
+  dst_l = g_df.i.values
+  # cat_l = g_df.cat.values
+  # e_idx_l = g_df.idx.values
+
+  # max_src_index = src_l.max()
+  # max_idx = max(src_l.max(), dst_l.max())
+
+  total_node_set = set(np.unique(np.hstack([g_df.u.values, g_df.i.values])))
+  num_total_unique_nodes = len(total_node_set)
+
+  # scaling labels
+  g_df['raw_label'] = g_df.label.copy()
+  raw_label_l = g_df.raw_label.values
+  # NOTE!!!!!!! change TGAN.contrast if the label range is changed
+  i2cat = g_df.groupby('i').first().reset_index().set_index('i')['cat'].to_dict()
+  for cat in i2cat.values():
+      orig_labels = g_df.loc[(g_df.cat == cat) & valid_train_flag, 'label'].values
+      lower = np.quantile(orig_labels, 0.001)
+      upper = np.quantile(orig_labels, 0.999)
+      g_df.loc[(g_df.cat == cat) & valid_train_flag, 'label'] = np.clip(orig_labels, lower, upper)
 
   train_data = Data(sources[train_mask], destinations[train_mask], timestamps[train_mask],
                     edge_idxs[train_mask], labels[train_mask])
 
   # define the new nodes sets for testing inductiveness of the model
   train_node_set = set(train_data.sources).union(train_data.destinations)
-  assert len(train_node_set & new_test_node_set) == 0
+  # assert len(train_node_set & new_test_node_set) == 0
   new_node_set = node_set - train_node_set
 
   val_mask = np.logical_and(timestamps <= test_time, timestamps > val_time)

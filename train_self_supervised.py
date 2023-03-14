@@ -124,12 +124,12 @@ full_ngh_finder = get_neighbor_finder(full_data, args.uniform)
 # NB: in the inductive setting, negatives are sampled only amongst other new nodes
 train_rand_sampler = RandEdgeSampler(train_data.sources, train_data.destinations)
 val_rand_sampler = RandEdgeSampler(full_data.sources, full_data.destinations, seed=0)
-nn_val_rand_sampler = RandEdgeSampler(new_node_val_data.sources, new_node_val_data.destinations,
-                                      seed=1)
+# nn_val_rand_sampler = RandEdgeSampler(new_node_val_data.sources, new_node_val_data.destinations,
+                                      # seed=1)
 test_rand_sampler = RandEdgeSampler(full_data.sources, full_data.destinations, seed=2)
-nn_test_rand_sampler = RandEdgeSampler(new_node_test_data.sources,
-                                       new_node_test_data.destinations,
-                                       seed=3)
+# nn_test_rand_sampler = RandEdgeSampler(new_node_test_data.sources,
+#                                        new_node_test_data.destinations,
+#                                        seed=3)
 
 # Set device
 device_string = 'cuda:{}'.format(GPU) if torch.cuda.is_available() else 'cpu'
@@ -318,21 +318,21 @@ for i in range(args.n_runs):
     tgn.memory.restore_memory(val_memory_backup)
 
   # Test on unseen nodes
-  nn_test_ap, nn_test_auc = eval_edge_prediction(model=tgn,
-                                                                          negative_edge_sampler=nn_test_rand_sampler,
-                                                                          data=new_node_test_data,
-                                                                          n_neighbors=NUM_NEIGHBORS)
+  # nn_test_ap, nn_test_auc = eval_edge_prediction(model=tgn,
+  #                                                                         negative_edge_sampler=nn_test_rand_sampler,
+  #                                                                         data=new_node_test_data,
+  #                                                                         n_neighbors=NUM_NEIGHBORS)
 
   logger.info(
     'Test statistics: Old nodes -- auc: {}, ap: {}'.format(test_auc, test_ap))
-  logger.info(
-    'Test statistics: New nodes -- auc: {}, ap: {}'.format(nn_test_auc, nn_test_ap))
+  # logger.info(
+  #   'Test statistics: New nodes -- auc: {}, ap: {}'.format(nn_test_auc, nn_test_ap))
   # Save results for this run
   pickle.dump({
     "val_aps": val_aps,
     "new_nodes_val_aps": new_nodes_val_aps,
     "test_ap": test_ap,
-    "new_node_test_ap": nn_test_ap,
+    # "new_node_test_ap": nn_test_ap,
     "epoch_times": epoch_times,
     "train_losses": train_losses,
     "total_epoch_times": total_epoch_times

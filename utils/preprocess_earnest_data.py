@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 import argparse
 
+WEEK_IN_SECS = 7*24*60*60
 
 def preprocess(data_name):
   u_list, i_list, ts_list, label_list = [], [], [], []
@@ -11,15 +12,18 @@ def preprocess(data_name):
   idx_list = []
 
   raw_df = pd.read_csv(data_name)
-  df = raw_df.groupby(['member_id','merchant', 'optimized_date']).agg({'transaction_amount':'sum', 'category':'first', 'member_home_state':'first'}).reset_index()
-  df['ts'] = df['optimized_date'].apply(pd.to_datetime).astype(int) / 10**9
+  
+  raw_df['ts'] = raw_df['optimized_date'].apply(pd.to_datetime).astype(int) // 10**9 // WEEK_IN_SECS
+  df = raw_df.groupby(['member_id','merchant', 'ts']).agg({'transaction_amount':'sum', 'category':'first', 'member_home_state':'first'}).reset_index()
+  
   df = df.sort_values('ts')
   result_df = pd.DataFrame({'u': df['member_id'].astype('category').cat.codes.tolist(),
                             'i': df['merchant'].astype('category').cat.codes.tolist(),
                             'ts': df['ts'].tolist(),
                             'label': df['transaction_amount'].tolist(),
                             'idx': df.index.values.tolist()})
-  return result_df, np.array([df['category'].astype('category').cat.codes.tolist(), df['member_home_state'].astype('category').cat.codes.tolist()]).T
+  # return result_df, np.array([df['category'].astype('category').cat.codes.tolist(), df['member_home_state'].astype('category').cat.codes.tolist()]).T
+  return result_df, pd.get_dummies(df['member_home_state'], prefix='_state'), pd.get_dummies(df['category'], prefix='_cat')
 
 
 def reindex(df, bipartite=True):
@@ -50,9 +54,10 @@ def run(data_name, bipartite=True):
   OUT_FEAT = './data/ml_{}.npy'.format(data_name)
   OUT_NODE_FEAT = './data/ml_{}_node.npy'.format(data_name)
 
-  df, feat = preprocess(PATH)
+  df, u_feat, i_feat = preprocess(PATH)
   new_df = reindex(df, bipartite)
 
+  # TODO: empty node feature?
   empty = np.zeros(feat.shape[1])[np.newaxis, :]
   feat = np.vstack([empty, feat])
 
@@ -60,7 +65,9 @@ def run(data_name, bipartite=True):
   rand_feat = np.zeros((max_idx + 1, feat.shape[1]))
 
   new_df.to_csv(OUT_DF)
+  # edge features
   np.save(OUT_FEAT, feat)
+  # node features
   np.save(OUT_NODE_FEAT, rand_feat)
 
 parser = argparse.ArgumentParser('Interface for TGN data preprocessing')
