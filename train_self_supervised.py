@@ -11,7 +11,7 @@ from pathlib import Path
 from evaluation.evaluation import eval_edge_prediction
 from model.tgn import TGN
 from utils.utils import EarlyStopMonitor, RandEdgeSampler, get_neighbor_finder
-from utils.data_processing import get_data, compute_time_statistics
+from utils.data_utils import get_data, compute_time_statistics
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -109,9 +109,7 @@ logger.addHandler(ch)
 logger.info(args)
 
 ### Extract data for training, validation and testing
-node_features, edge_features, full_data, train_data, val_data, test_data, new_node_val_data, \
-new_node_test_data = get_data(DATA,
-                              different_new_nodes_between_val_and_test=args.different_new_nodes, randomize_features=args.randomize_features)
+node_features, edge_features, full_data, train_data, val_data, test_data = get_data(DATA, randomize_features=args.randomize_features)
 
 # Initialize training neighbor finder to retrieve temporal graph
 train_ngh_finder = get_neighbor_finder(train_data, args.uniform)
