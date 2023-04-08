@@ -62,7 +62,8 @@ parser.add_argument('--use_source_embedding_in_message', action='store_true',
                     help='Whether to use the embedding of the source node as part of the message')
 parser.add_argument('--dyrep', action='store_true',
                     help='Whether to run the dyrep model')
-
+parser.add_argument('--scale_label', type=str, choices=['none', 'MinMax', 'Log', 'Cbrt', 'Quantile']
+                    , default='Cbrt', help='how to scale the label')
 
 try:
   args = parser.parse_args()
@@ -85,6 +86,7 @@ TIME_DIM = args.time_dim
 USE_MEMORY = args.use_memory
 MESSAGE_DIM = args.message_dim
 MEMORY_DIM = args.memory_dim
+SCALE = args.scale_label
 
 Path("./saved_models/").mkdir(parents=True, exist_ok=True)
 Path("./saved_checkpoints/").mkdir(parents=True, exist_ok=True)
@@ -108,8 +110,12 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 logger.info(args)
 
+# Set device
+device_string = 'cuda:{}'.format(GPU) if torch.cuda.is_available() else 'cpu'
+device = torch.device(device_string)
+
 ### Extract data for training, validation and testing
-node_features, edge_features, full_data, train_data, val_data, test_data = get_data(DATA, randomize_features=args.randomize_features)
+node_features, edge_features, full_data, train_data, val_data, test_data, scaleUtil = get_data(DATA, SCALE, device, randomize_features=args.randomize_features)
 
 # Initialize training neighbor finder to retrieve temporal graph
 train_ngh_finder = get_neighbor_finder(train_data, args.uniform)
@@ -128,10 +134,6 @@ test_rand_sampler = RandEdgeSampler(full_data.sources, full_data.destinations, s
 # nn_test_rand_sampler = RandEdgeSampler(new_node_test_data.sources,
 #                                        new_node_test_data.destinations,
 #                                        seed=3)
-
-# Set device
-device_string = 'cuda:{}'.format(GPU) if torch.cuda.is_available() else 'cpu'
-device = torch.device(device_string)
 
 # Compute time statistics
 mean_time_shift_src, std_time_shift_src, mean_time_shift_dst, std_time_shift_dst = \
@@ -243,7 +245,7 @@ for i in range(args.n_runs):
       # validation on unseen nodes
       train_memory_backup = tgn.memory.backup_memory()
 
-    val_ap, val_auc = eval_edge_prediction(model=tgn,
+    val_ap, val_ap_raw, val_auc, val_auc_raw = eval_edge_prediction(model=tgn,
                                                             negative_edge_sampler=val_rand_sampler,
                                                             data=val_data,
                                                             n_neighbors=NUM_NEIGHBORS)
@@ -255,7 +257,7 @@ for i in range(args.n_runs):
       tgn.memory.restore_memory(train_memory_backup)
 
     # Validate on unseen nodes
-    nn_val_ap, nn_val_auc = eval_edge_prediction(model=tgn,
+    nn_val_ap, nn_val_ap_raw, nn_val_auc, nn_val_auc_raw = eval_edge_prediction(model=tgn,
                                                                         negative_edge_sampler=val_rand_sampler,
                                                                         data=new_node_val_data,
                                                                         n_neighbors=NUM_NEIGHBORS)
@@ -307,7 +309,7 @@ for i in range(args.n_runs):
 
   ### Test
   tgn.embedding_module.neighbor_finder = full_ngh_finder
-  test_ap, test_auc = eval_edge_prediction(model=tgn,
+  test_ap, test_ap_raw, test_auc, test_auc_raw = eval_edge_prediction(model=tgn,
                                                               negative_edge_sampler=test_rand_sampler,
                                                               data=test_data,
                                                               n_neighbors=NUM_NEIGHBORS)

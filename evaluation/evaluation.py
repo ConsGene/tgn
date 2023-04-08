@@ -11,7 +11,7 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_
   assert negative_edge_sampler.seed is not None
   negative_edge_sampler.reset_random_state()
 
-  val_ap, val_auc = [], []
+  val_ap, val_ap_raw, val_auc, val_auc_raw = [], [], [], []
   with torch.no_grad():
     model = model.eval()
     # While usually the test batch size is as big as it fits in memory, here we keep it the same
@@ -39,11 +39,16 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_
 
       pred_score = np.concatenate([(pos_prob).cpu().numpy(), (neg_prob).cpu().numpy()])
       true_label = np.concatenate([data.labels[s_idx: e_idx], np.zeros(size)])
+      true_label_raw = np.concatenate([data.raw_labels[s_idx: e_idx], np.zeros(size)])
 
       val_ap.append(mean_absolute_error(true_label, pred_score))
       val_auc.append(r2_score(true_label, pred_score))
+      if args.scale_label != 'none':
+        pred_score_raw = scaleUtil.convert_to_raw_label_score(np.concatenate([(pos_prob).cpu().numpy(), (neg_prob).cpu().numpy()]), args.scale_label)
+        val_ap_raw.append(mean_absolute_error(true_label_raw, pred_score_raw))
+        val_auc_raw.append(r2_score(true_label_raw, pred_score_raw))
 
-  return np.mean(val_ap), np.mean(val_auc)
+  return np.mean(val_ap), np.mean(val_ap_raw), np.mean(val_auc), np.mean(val_auc_raw)
 
 
 def eval_node_classification(tgn, decoder, data, edge_idxs, batch_size, n_neighbors):
