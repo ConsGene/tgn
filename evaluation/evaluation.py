@@ -5,7 +5,7 @@ import torch
 from sklearn.metrics import mean_absolute_error, r2_score
 
 
-def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_size=200):
+def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, scaleUtil, scale_label, batch_size=200):
   # Ensures the random sampler uses a seed for evaluation (i.e. we sample always the same
   # negatives for validation / test set)
   assert negative_edge_sampler.seed is not None
@@ -25,13 +25,14 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_
     for k in range(num_test_batch):
       s_idx = k * TEST_BATCH_SIZE
       e_idx = min(num_test_instance, s_idx + TEST_BATCH_SIZE)
-      sources_batch = data.sources[s_idx:e_idx]
-      destinations_batch = data.destinations[s_idx:e_idx]
-      timestamps_batch = data.timestamps[s_idx:e_idx]
+
+      sources_batch = data.sources[s_idx:e_idx]           #src_l_cut
+      destinations_batch = data.destinations[s_idx:e_idx] #dst_l_cut
+      timestamps_batch = data.timestamps[s_idx:e_idx]     #ts_l_cut
       edge_idxs_batch = data.edge_idxs[s_idx: e_idx]
 
       size = len(sources_batch)
-      _, negative_samples = negative_edge_sampler.sample(size)
+      _, negative_samples = negative_edge_sampler.sample(size)  #dst_l_fake
 
       pos_prob, neg_prob = model.compute_edge_values(sources_batch, destinations_batch,
                                                             negative_samples, timestamps_batch,
@@ -43,8 +44,8 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_
 
       val_ap.append(mean_absolute_error(true_label, pred_score))
       val_auc.append(r2_score(true_label, pred_score))
-      if args.scale_label != 'none':
-        pred_score_raw = scaleUtil.convert_to_raw_label_score(np.concatenate([(pos_prob).cpu().numpy(), (neg_prob).cpu().numpy()]), args.scale_label)
+      if scale_label != 'none':
+        pred_score_raw = scaleUtil.convert_to_raw_label_score(np.concatenate([destinations_batch, negative_samples]), pred_score)
         val_ap_raw.append(mean_absolute_error(true_label_raw, pred_score_raw))
         val_auc_raw.append(r2_score(true_label_raw, pred_score_raw))
 

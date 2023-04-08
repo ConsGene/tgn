@@ -37,13 +37,13 @@ def get_data(dataset_name, scale_label, device, randomize_features=False):
   labels = graph_df.label.values
   timestamps = graph_df.ts.values
   scaleUtil = ScaleUtil(scale_label, device)
-  labels, raw_labels = scaleUtil.transform_df(graph_df, valid_train_flag)
+  labels, raw_labels = scaleUtil.transform_df(graph_df, True)
 
   full_data = Data(sources, destinations, timestamps, edge_idxs, labels, raw_labels)
 
   random.seed(2020)
 
-  node_set = set(sources) | set(destinations)
+  #node_set = set(sources) | set(destinations)
 
 
   # For train we keep edges happening before the validation time which do not involve any new node
