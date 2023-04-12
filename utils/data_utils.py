@@ -37,7 +37,8 @@ def get_data(dataset_name, scale_label, device, randomize_features=False):
   labels = graph_df.label.values
   timestamps = graph_df.ts.values
   scaleUtil = ScaleUtil(scale_label, device)
-  labels, raw_labels = scaleUtil.transform_df(graph_df, True)
+  full_mask = np.ones(len(graph_df), dtype=bool)
+  labels, raw_labels = scaleUtil.transform_df(graph_df, full_mask)
 
   full_data = Data(sources, destinations, timestamps, edge_idxs, labels, raw_labels)
 
@@ -104,35 +105,35 @@ def compute_time_statistics(sources, destinations, timestamps):
   return mean_time_shift_src, std_time_shift_src, mean_time_shift_dst, std_time_shift_dst
 
 class ScaleUtil:
-    def __init__(self, scale_label, device):
-        self.scale_label = scale_label
-        if scale_label == 'MinMax':
-            self.sscaler = preprocessing.MinMaxScaler
-        elif scale_label == 'Quantile':
-            self.scaler = preprocessing.QuantileTransformer
-        elif scale_label == 'Log':
-            self.scaler = preprocessing.StandardScaler
-        elif scale_label == 'Cbrt':
-            self.scaler = preprocessing.StandardScaler
-        
-        self.device = device
-        self.i2cat = None
-        self.scalers_dict = None
+  def __init__(self, scale_label, device):
+      self.scale_label = scale_label
+      if scale_label == 'MinMax':
+          self.sscaler = preprocessing.MinMaxScaler
+      elif scale_label == 'Quantile':
+          self.scaler = preprocessing.QuantileTransformer
+      elif scale_label == 'Log':
+          self.scaler = preprocessing.StandardScaler
+      elif scale_label == 'Cbrt':
+          self.scaler = preprocessing.StandardScaler
+      
+      self.device = device
+      self.i2cat = None
+      self.scalers_dict = None
     
-    def transform_df(self, original_graph_df, valid_train_flag):
-        graph_df = original_graph_df.copy()
-        graph_df['raw_label'] = graph_df.label.copy()
-        
-        self.i2cat = graph_df.groupby('i').first().reset_index().set_index('i')['cat'].to_dict()
-        for cat in self.i2cat.values():
-            orig_labels = graph_df.loc[(graph_df.cat == cat) & valid_train_flag, 'label'].values
-            lower = np.quantile(orig_labels, 0.001)
-            upper = np.quantile(orig_labels, 0.999)
-            graph_df.loc[(graph_df.cat == cat) & valid_train_flag, 'label'] = np.clip(orig_labels, lower, upper)
-        
-        if self.scale_label == 'none':
-            label_l = graph_df.label.values
-        else:
+  def transform_df(self, original_graph_df, valid_train_flag):
+      graph_df = original_graph_df.copy()
+      graph_df['raw_label'] = graph_df.label.copy()
+      
+      self.i2cat = graph_df.groupby('i').first().reset_index().set_index('i')['cat'].to_dict()
+      for cat in self.i2cat.values():
+          orig_labels = graph_df.loc[(graph_df.cat == cat) & valid_train_flag, 'label'].values
+          lower = np.quantile(orig_labels, 0.001)
+          upper = np.quantile(orig_labels, 0.999)
+          graph_df.loc[(graph_df.cat == cat) & valid_train_flag, 'label'] = np.clip(orig_labels, lower, upper)
+      
+      if self.scale_label == 'none':
+          label_l = graph_df.label.values
+      else:
             # train_df['abs_label'] = train_df['label'].abs()
             
             # i_maxes = train_df.groupby('i')['abs_label'].max().reset_index().set_index('i')['abs_label'].to_dict()
@@ -146,49 +147,49 @@ class ScaleUtil:
             #     else:
             #         scale = torch.tensor([i_maxes[dst] for dst in dst_l_cut], dtype=float, device=device)
             #     return preds * scale, labels * scale
-            train_df = graph_df[valid_train_flag]
+          train_df = graph_df[valid_train_flag]
 
 
-        self.scalers_dict = {}
-        if self.scale_label == 'Cbrt':
-            graph_df.label = np.cbrt(graph_df.label.values)
-        else:
-            for cat in self.i2cat.values():
-                cat_train_df = train_df[train_df.cat==cat]
-                self.scalers_dict[cat] = self.scaler()
-                train_label_vals = self.prepare_transform(cat_train_df.label.values)
-                self.scalers_dict[cat].fit(train_label_vals.reshape(-1, 1))
-                label_vals = self.prepare_transform(graph_df.loc[graph_df.cat == cat]['label'].values)        
-                graph_df.loc[graph_df.cat == cat, 'label'] = self.scalers_dict[cat].transform(label_vals.reshape(-1, 1))
+      self.scalers_dict = {}
+      if self.scale_label == 'Cbrt':
+          graph_df.label = np.cbrt(graph_df.label.values)
+      else:
+          for cat in self.i2cat.values():
+              cat_train_df = train_df[train_df.cat==cat]
+              self.scalers_dict[cat] = self.scaler()
+              train_label_vals = self.prepare_transform(cat_train_df.label.values)
+              self.scalers_dict[cat].fit(train_label_vals.reshape(-1, 1))
+              label_vals = self.prepare_transform(graph_df.loc[graph_df.cat == cat]['label'].values)        
+              graph_df.loc[graph_df.cat == cat, 'label'] = self.scalers_dict[cat].transform(label_vals.reshape(-1, 1))
+      
+      label_l = graph_df.label.values
+      raw_label_l = graph_df.raw_label.values
+      return label_l, raw_label_l
         
-        label_l = graph_df.label.values
-        raw_label_l = graph_df.raw_label.values
-        return label_l, raw_label_l
-        
-    def prepare_transform(self, label_vals):
-        if self.scale_label == 'Log':
-            label_vals = np.sign(label_vals) * np.log(np.abs(label_vals)+1)
-        elif self.scale_label == 'Cbrt':
-            label_vals = np.cbrt(label_vals)
-        return label_vals
+  def prepare_transform(self, label_vals):
+      if self.scale_label == 'Log':
+          label_vals = np.sign(label_vals) * np.log(np.abs(label_vals)+1)
+      elif self.scale_label == 'Cbrt':
+          label_vals = np.cbrt(label_vals)
+      return label_vals
 
-    def convert_to_raw_label_scale(self, dst_l_cut, preds):
-        if (self.i2cat is None) or (self.scalers_dict is None):
-            raise RuntimeError("self.i2cat or self.scalers_dict is None. Run ScaleUtil.transform_df function first")
-        raw_preds = []
-        for dst, pred in zip(dst_l_cut, preds):
-            cat = self.i2cat[dst]
-            if self.scale_label == 'Cbrt':
-                raw = np.power(pred, 3)
-                raw_preds.append(raw)
-            else:
-                raw = self.scalers_dict[cat].inverse_transform(pred.reshape(1, -1))
-                if self.scale_label == 'Log':
-                    raw = np.sign(raw) * (np.exp(np.abs(raw))-1)
-                elif self.scale_label == 'Cbrt':
-                    raw = np.power(raw, 3)
-                raw_preds.append(raw[0, 0])
-        if isinstance(preds, np.ndarray):
-            return np.array(raw_preds)
-        else:
-            return torch.tensor(raw_preds, dtype=float, device=self.device)
+  def convert_to_raw_label_scale(self, dst_l_cut, preds):
+      if (self.i2cat is None) or (self.scalers_dict is None):
+          raise RuntimeError("self.i2cat or self.scalers_dict is None. Run ScaleUtil.transform_df function first")
+      raw_preds = []
+      for dst, pred in zip(dst_l_cut, preds):
+          cat = self.i2cat[dst]
+          if self.scale_label == 'Cbrt':
+              raw = np.power(pred, 3)
+              raw_preds.append(raw)
+          else:
+              raw = self.scalers_dict[cat].inverse_transform(pred.reshape(1, -1))
+              if self.scale_label == 'Log':
+                  raw = np.sign(raw) * (np.exp(np.abs(raw))-1)
+              elif self.scale_label == 'Cbrt':
+                  raw = np.power(raw, 3)
+              raw_preds.append(raw[0, 0])
+      if isinstance(preds, np.ndarray):
+          return np.array(raw_preds)
+      else:
+          return torch.tensor(raw_preds, dtype=float, device=self.device)

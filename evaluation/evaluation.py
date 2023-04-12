@@ -45,7 +45,7 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, scaleU
       val_ap.append(mean_absolute_error(true_label, pred_score))
       val_auc.append(r2_score(true_label, pred_score))
       if scale_label != 'none':
-        pred_score_raw = scaleUtil.convert_to_raw_label_score(np.concatenate([destinations_batch, negative_samples]), pred_score)
+        pred_score_raw = scaleUtil.convert_to_raw_label_scale(np.concatenate([destinations_batch, negative_samples]), pred_score)
         val_ap_raw.append(mean_absolute_error(true_label_raw, pred_score_raw))
         val_auc_raw.append(r2_score(true_label_raw, pred_score_raw))
 
