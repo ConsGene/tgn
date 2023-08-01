@@ -93,7 +93,7 @@ def preprocess(data_name):
 
   raw_df = pd.read_csv(data_name)
   
-  raw_df['ts'] = raw_df['optimized_date'].apply(pd.to_datetime).astype(int) // 10**9 // (1*WEEK_IN_SECS)
+  raw_df['ts'] = raw_df['optimized_date'].apply(pd.to_datetime).astype('int64') // 10**9 // (1*WEEK_IN_SECS)
   df = raw_df.groupby(['member_id','merchant_format_name', 'ts']).agg({'transaction_amount':'sum', 'category':'first', 'subcategory':'first', 'member_home_state':'first'}).reset_index()
   df = df.sort_values('ts')
   result_df = pd.DataFrame({'u': df['member_id'].astype('category').cat.codes.tolist(),
@@ -132,7 +132,7 @@ def reindex(df, bipartite=True):
 
 def run(data_name, agg, bipartite=True):
   Path("data/").mkdir(parents=True, exist_ok=True)
-  PATH = '../data/{}.csv'.format(data_name)
+  PATH = './data/{}.csv'.format(data_name)
   OUT_DF = './processed/ml_{}_{}.csv'.format(data_name, agg)
   OUT_FEAT = './processed/ml_{}_{}.npy'.format(data_name, agg)
   OUT_NODE_FEAT = './processed/ml_{}_{}_node.npy'.format(data_name, agg)

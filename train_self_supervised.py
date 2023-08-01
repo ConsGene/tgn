@@ -12,6 +12,8 @@ from evaluation.evaluation import eval_edge_prediction
 from model.tgn import TGN
 from utils.utils import EarlyStopMonitor, RandEdgeSampler, get_neighbor_finder
 from utils.data_utils import get_data, compute_time_statistics
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_absolute_error
 
 torch.manual_seed(0)
 np.random.seed(0)
@@ -19,7 +21,7 @@ np.random.seed(0)
 ### Argument and global variables
 parser = argparse.ArgumentParser('TGN self-supervised training')
 parser.add_argument('-d', '--data', type=str, help='Dataset name (eg. wikipedia or reddit)',
-                    default='wikipedia')
+                    default='u2k_i200')
 parser.add_argument('--bs', type=int, default=200, help='Batch_size')
 parser.add_argument('--prefix', type=str, default='', help='Prefix to name the checkpoints')
 parser.add_argument('--n_degree', type=int, default=10, help='Number of neighbors to sample')
@@ -62,7 +64,8 @@ parser.add_argument('--use_source_embedding_in_message', action='store_true',
                     help='Whether to use the embedding of the source node as part of the message')
 parser.add_argument('--dyrep', action='store_true',
                     help='Whether to run the dyrep model')
-
+parser.add_argument('--scale_label', type=str, choices=['none', 'MinMax', 'Log', 'Cbrt', 'Quantile']
+                    , default='Cbrt', help='how to scale the label')
 
 try:
   args = parser.parse_args()
@@ -85,6 +88,7 @@ TIME_DIM = args.time_dim
 USE_MEMORY = args.use_memory
 MESSAGE_DIM = args.message_dim
 MEMORY_DIM = args.memory_dim
+SCALE = args.scale_label
 
 Path("./saved_models/").mkdir(parents=True, exist_ok=True)
 Path("./saved_checkpoints/").mkdir(parents=True, exist_ok=True)
@@ -108,8 +112,12 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 logger.info(args)
 
+# Set device
+device_string = 'cuda:{}'.format(GPU) if torch.cuda.is_available() else 'cpu'
+device = torch.device(device_string)
+
 ### Extract data for training, validation and testing
-node_features, edge_features, full_data, train_data, val_data, test_data = get_data(DATA, randomize_features=args.randomize_features)
+node_features, edge_features, full_data, train_data, val_data, test_data, scaleUtil = get_data(DATA, SCALE, device, randomize_features=args.randomize_features)
 
 # Initialize training neighbor finder to retrieve temporal graph
 train_ngh_finder = get_neighbor_finder(train_data, args.uniform)
@@ -128,10 +136,6 @@ test_rand_sampler = RandEdgeSampler(full_data.sources, full_data.destinations, s
 # nn_test_rand_sampler = RandEdgeSampler(new_node_test_data.sources,
 #                                        new_node_test_data.destinations,
 #                                        seed=3)
-
-# Set device
-device_string = 'cuda:{}'.format(GPU) if torch.cuda.is_available() else 'cpu'
-device = torch.device(device_string)
 
 # Compute time statistics
 mean_time_shift_src, std_time_shift_src, mean_time_shift_dst, std_time_shift_dst = \
@@ -169,7 +173,7 @@ for i in range(args.n_runs):
   logger.info('num of batches per epoch: {}'.format(num_batch))
   idx_list = np.arange(num_instance)
 
-  new_nodes_val_aps = []
+  #new_nodes_val_aps = []
   val_aps = []
   epoch_times = []
   total_epoch_times = []
@@ -186,7 +190,7 @@ for i in range(args.n_runs):
 
     # Train using only training graph
     tgn.set_neighbor_finder(train_ngh_finder)
-    m_loss = []
+    mae_raw, mae, r2_raw, r2, m_loss = [], [], [], [], []
 
     logger.info('start {} epoch'.format(epoch))
     for k in range(0, num_batch, args.backprop_every):
@@ -206,12 +210,14 @@ for i in range(args.n_runs):
                                             train_data.destinations[start_idx:end_idx]
         edge_idxs_batch = train_data.edge_idxs[start_idx: end_idx]
         timestamps_batch = train_data.timestamps[start_idx:end_idx]
+        label_batch = train_data.labels[start_idx:end_idx]
+        raw_label_batch = train_data.raw_labels[start_idx:end_idx]
 
         size = len(sources_batch)
         _, negatives_batch = train_rand_sampler.sample(size)
 
         with torch.no_grad():
-          pos_label = torch.tensor(train_data.labels[start_idx:end_idx], dtype=torch.float, device=device)
+          pos_label = torch.tensor(label_batch, dtype=torch.float, device=device)
           neg_label = torch.zeros(size, dtype=torch.float, device=device)
 
         tgn = tgn.train()
@@ -224,7 +230,19 @@ for i in range(args.n_runs):
 
       loss.backward()
       optimizer.step()
-      m_loss.append(loss.item())
+      with torch.no_grad():
+        tgn = tgn.eval()
+        pred_score = np.concatenate([(pos_prob).cpu().detach().numpy(), (neg_prob).cpu().detach().numpy()])
+        true_label = np.concatenate([label_batch, np.zeros(size)])
+        true_label_raw = np.concatenate([raw_label_batch, np.zeros(size)])
+
+        mae.append(mean_absolute_error(true_label, pred_score))
+        m_loss.append(loss.item())
+        r2.append(r2_score(true_label, pred_score))
+        if args.scale_label != 'none':
+          pred_score_raw = scaleUtil.convert_to_raw_label_scale(np.concatenate([destinations_batch, negatives_batch]), pred_score)
+          mae_raw.append(mean_absolute_error(true_label_raw, pred_score_raw))
+          r2_raw.append(r2_score(true_label_raw, pred_score_raw))
 
       # Detach memory after 'args.backprop_every' number of batches so we don't backpropagate to
       # the start of time
@@ -243,10 +261,12 @@ for i in range(args.n_runs):
       # validation on unseen nodes
       train_memory_backup = tgn.memory.backup_memory()
 
-    val_ap, val_auc = eval_edge_prediction(model=tgn,
+    val_ap, val_ap_raw, val_auc, val_auc_raw = eval_edge_prediction(model=tgn,
                                                             negative_edge_sampler=val_rand_sampler,
                                                             data=val_data,
-                                                            n_neighbors=NUM_NEIGHBORS)
+                                                            n_neighbors=NUM_NEIGHBORS,
+                                                            scaleUtil=scaleUtil,
+                                                            scale_label = args.scale_label)
     if USE_MEMORY:
       val_memory_backup = tgn.memory.backup_memory()
       # Restore memory we had at the end of training to be used when validating on new nodes.
@@ -254,24 +274,17 @@ for i in range(args.n_runs):
       # strictly later in time than validation edges)
       tgn.memory.restore_memory(train_memory_backup)
 
-    # Validate on unseen nodes
-    nn_val_ap, nn_val_auc = eval_edge_prediction(model=tgn,
-                                                                        negative_edge_sampler=val_rand_sampler,
-                                                                        data=new_node_val_data,
-                                                                        n_neighbors=NUM_NEIGHBORS)
-
     if USE_MEMORY:
       # Restore memory we had at the end of validation
       tgn.memory.restore_memory(val_memory_backup)
 
-    new_nodes_val_aps.append(nn_val_ap)
+    #new_nodes_val_aps.append(nn_val_ap)
     val_aps.append(val_ap)
     train_losses.append(np.mean(m_loss))
 
     # Save temporary results to disk
     pickle.dump({
       "val_aps": val_aps,
-      "new_nodes_val_aps": new_nodes_val_aps,
       "train_losses": train_losses,
       "epoch_times": epoch_times,
       "total_epoch_times": total_epoch_times
@@ -283,9 +296,12 @@ for i in range(args.n_runs):
     logger.info('epoch: {} took {:.2f}s'.format(epoch, total_epoch_time))
     logger.info('Epoch mean loss: {}'.format(np.mean(m_loss)))
     logger.info(
-      'val r2: {}, new node val r2: {}'.format(val_auc, nn_val_auc))
+      'train r2: {}, val r2: {}'.format(np.mean(r2), val_auc))
     logger.info(
-      'val MAE: {}, new node val MAE: {}'.format(val_ap, nn_val_ap))
+      'train MAE: {}, Eval MAE: {}'.format(np.mean(mae), val_ap))
+    if args.scale_label != 'none':
+      logger.info('train r2 raw: {}, val r2 raw: {}'.format(np.mean(r2_raw), val_auc_raw))
+      logger.info('train MAE raw: {}, val MAE raw: {}'.format(np.mean(mae_raw), val_ap_raw))
 
     # Early stopping
     if early_stopper.early_stop_check(val_ap):
@@ -307,30 +323,25 @@ for i in range(args.n_runs):
 
   ### Test
   tgn.embedding_module.neighbor_finder = full_ngh_finder
-  test_ap, test_auc = eval_edge_prediction(model=tgn,
+  test_ap, test_ap_raw, test_auc, test_auc_raw = eval_edge_prediction(model=tgn,
                                                               negative_edge_sampler=test_rand_sampler,
                                                               data=test_data,
-                                                              n_neighbors=NUM_NEIGHBORS)
+                                                              n_neighbors=NUM_NEIGHBORS,
+                                                              scaleUtil=scaleUtil,
+                                                              scale_label = args.scale_label)
 
   if USE_MEMORY:
     tgn.memory.restore_memory(val_memory_backup)
 
-  # Test on unseen nodes
-  # nn_test_ap, nn_test_auc = eval_edge_prediction(model=tgn,
-  #                                                                         negative_edge_sampler=nn_test_rand_sampler,
-  #                                                                         data=new_node_test_data,
-  #                                                                         n_neighbors=NUM_NEIGHBORS)
-
   logger.info(
     'Test statistics: Old nodes -- auc: {}, ap: {}'.format(test_auc, test_ap))
-  # logger.info(
-  #   'Test statistics: New nodes -- auc: {}, ap: {}'.format(nn_test_auc, nn_test_ap))
+  if args.scale_label != 'none':
+    logger.info('Test R2 raw: {}, Test MAE raw: {}'.format(test_auc_raw, test_ap_raw))
+
   # Save results for this run
   pickle.dump({
     "val_aps": val_aps,
-    "new_nodes_val_aps": new_nodes_val_aps,
     "test_ap": test_ap,
-    # "new_node_test_ap": nn_test_ap,
     "epoch_times": epoch_times,
     "train_losses": train_losses,
     "total_epoch_times": total_epoch_times
